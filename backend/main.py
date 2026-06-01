@@ -119,6 +119,28 @@ Rules:
 - confidence=high if name is clearly readable and matches typical Riftbound card layout.
 - Return only valid JSON, no markdown."""
 
+MAGIC_VISION_PROMPT = """Identify this Magic: The Gathering card from the image. Return the most likely English card name, collector number if visible, set code if visible, and confidence.
+
+Return JSON with exactly these fields:
+{
+  "name": "most likely English card name, or null if unreadable",
+  "nameEnglish": "same as name — canonical English card name for database lookup",
+  "number": "collector number only (e.g. '141' from '141/281'), or null",
+  "set": "three-letter set code if visible (e.g. 'MOM', 'ONE', 'CLU'), or null",
+  "language": "language of the card text (e.g. 'English', 'Portuguese'), or null",
+  "confidence": "high, medium, or low — how confident you are in the identification"
+}
+
+Rules:
+- Identify this as a Magic: The Gathering card, not Pokémon or Riftbound.
+- Use the exact English card name when readable.
+- For number, return only the collector number before the slash.
+- For set, return the three-letter set code when visible, not the full set name.
+- confidence=low if the image is blurry, cropped, or the name is unclear.
+- confidence=medium if you can read the name but set/number are uncertain.
+- confidence=high if name is clearly readable and matches typical Magic card layout.
+- Return only valid JSON, no markdown."""
+
 
 class ExtractedCardInfo(BaseModel):
     name: str | None = None
@@ -167,16 +189,20 @@ def get_openai_client() -> OpenAI:
     return OpenAI(api_key=OPENAI_API_KEY)
 
 
-def normalize_game_type(value: str | None) -> Literal["pokemon", "riftbound"]:
+def normalize_game_type(value: str | None) -> Literal["pokemon", "riftbound", "magic"]:
     normalized = (value or "pokemon").strip().lower()
     if normalized in {"riftbound", "runeterra"}:
         return "riftbound"
+    if normalized == "magic":
+        return "magic"
     return "pokemon"
 
 
-def get_vision_prompt(game_type: Literal["pokemon", "riftbound"]) -> str:
+def get_vision_prompt(game_type: Literal["pokemon", "riftbound", "magic"]) -> str:
     if game_type == "riftbound":
         return RIFTBOUND_VISION_PROMPT
+    if game_type == "magic":
+        return MAGIC_VISION_PROMPT
     return VISION_PROMPT
 
 
@@ -569,7 +595,7 @@ def raise_openai_error(exc: Exception) -> None:
 
 def analyze_card_image(
     image_bytes: bytes,
-    game_type: Literal["pokemon", "riftbound"] = "pokemon",
+    game_type: Literal["pokemon", "riftbound", "magic"] = "pokemon",
 ) -> tuple[ExtractedCardInfo, Literal["high", "medium", "low"]]:
     client = get_openai_client()
     mime_type = detect_image_mime_type(image_bytes)
@@ -771,7 +797,7 @@ async def scan_card(
 
     extracted, confidence = analyze_card_image(image_bytes, normalized_game_type)
 
-    if normalized_game_type == "riftbound":
+    if normalized_game_type in {"riftbound", "magic"}:
         candidates: list[ScannedCardResponse] = []
     else:
         candidates = await search_candidates(extracted)
