@@ -7,7 +7,7 @@ from typing import Literal
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from openai import APIConnectionError, APIStatusError, AuthenticationError, OpenAI, RateLimitError
 from pydantic import BaseModel
@@ -19,15 +19,29 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Pokemon Card Scan API", version="1.0.0")
 
+
+def parse_cors_origins() -> tuple[list[str], bool]:
+    """Parse CORS_ORIGINS (comma-separated). Wildcard disables credentials (browser rule)."""
+    raw = os.getenv("CORS_ORIGINS", "*").strip()
+    if not raw or raw == "*":
+        return ["*"], False
+    origins = [origin.strip() for origin in raw.split(",") if origin.strip()]
+    return (origins if origins else ["*"]), bool(origins)
+
+
+_cors_origins, _cors_allow_credentials = parse_cors_origins()
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 API_BASE_URL = "https://api.pokemontcg.io/v2"
+TCGAPI_DEV_BASE_URL = "https://api.tcgapi.dev/v1"
+TCGAPI_DEV_KEY = os.getenv("TCGAPI_DEV_KEY", "").strip()
 TCGDEX_BASE_URL = "https://api.tcgdex.net/v2"
 EUR_TO_BRL = 6.35
 USD_TO_BRL = 5.75
@@ -84,6 +98,27 @@ Rules:
 - confidence=high if name is clearly readable and matches typical card layout.
 - Return only valid JSON, no markdown."""
 
+RIFTBOUND_VISION_PROMPT = """Analyze this Riftbound trading card image and extract visible card information.
+
+Return JSON with exactly these fields:
+{
+  "name": "card name as printed on the card, or null if unreadable",
+  "nameEnglish": "official English Riftbound card name for API lookup (same as name if already English)",
+  "number": "collector number if visible, or null",
+  "set": "set/expansion name if visible, or null",
+  "language": "language of the card text (e.g. 'Portuguese', 'English'), or null",
+  "confidence": "high, medium, or low — how confident you are in the name extraction"
+}
+
+Rules:
+- Identify this as a Riftbound card, not Pokémon.
+- Use the exact card name as printed (legend, unit, spell, gear, etc.).
+- nameEnglish should be the canonical English card name used in Riftbound databases.
+- confidence=low if the image is blurry, cropped, or the name is unclear.
+- confidence=medium if you can read the name but set/number are uncertain.
+- confidence=high if name is clearly readable and matches typical Riftbound card layout.
+- Return only valid JSON, no markdown."""
+
 
 class ExtractedCardInfo(BaseModel):
     name: str | None = None
@@ -130,6 +165,19 @@ def get_openai_client() -> OpenAI:
             ),
         )
     return OpenAI(api_key=OPENAI_API_KEY)
+
+
+def normalize_game_type(value: str | None) -> Literal["pokemon", "riftbound"]:
+    normalized = (value or "pokemon").strip().lower()
+    if normalized in {"riftbound", "runeterra"}:
+        return "riftbound"
+    return "pokemon"
+
+
+def get_vision_prompt(game_type: Literal["pokemon", "riftbound"]) -> str:
+    if game_type == "riftbound":
+        return RIFTBOUND_VISION_PROMPT
+    return VISION_PROMPT
 
 
 def normalize_confidence(value: str | None) -> Literal["high", "medium", "low"]:
@@ -519,7 +567,10 @@ def raise_openai_error(exc: Exception) -> None:
     ) from exc
 
 
-def analyze_card_image(image_bytes: bytes) -> tuple[ExtractedCardInfo, Literal["high", "medium", "low"]]:
+def analyze_card_image(
+    image_bytes: bytes,
+    game_type: Literal["pokemon", "riftbound"] = "pokemon",
+) -> tuple[ExtractedCardInfo, Literal["high", "medium", "low"]]:
     client = get_openai_client()
     mime_type = detect_image_mime_type(image_bytes)
 
@@ -544,7 +595,7 @@ def analyze_card_image(image_bytes: bytes) -> tuple[ExtractedCardInfo, Literal["
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": VISION_PROMPT},
+                        {"type": "text", "text": get_vision_prompt(game_type)},
                         {
                             "type": "image_url",
                             "image_url": {
@@ -601,16 +652,109 @@ def _clean_number(value: object) -> str | None:
     return match.group(0) if match else None
 
 
+def is_tcgapi_dev_configured() -> bool:
+    return len(TCGAPI_DEV_KEY) > 0
+
+
+def extract_tcgapi_dev_price(prices: list[dict[str, object]]) -> dict[str, object] | None:
+    for entry in prices:
+        market_price = entry.get("market_price")
+        if isinstance(market_price, (int, float)) and market_price > 0:
+            return {
+                "amount": float(market_price),
+                "currency": "USD",
+                "source": "tcgplayer",
+                "updatedAt": entry.get("last_updated_at"),
+            }
+
+    for entry in prices:
+        median_price = entry.get("median_price")
+        if isinstance(median_price, (int, float)) and median_price > 0:
+            return {
+                "amount": float(median_price),
+                "currency": "USD",
+                "source": "tcgplayer",
+                "updatedAt": entry.get("last_updated_at"),
+            }
+
+    for entry in prices:
+        low_price = entry.get("low_price")
+        if isinstance(low_price, (int, float)) and low_price > 0:
+            return {
+                "amount": float(low_price),
+                "currency": "USD",
+                "source": "tcgplayer",
+                "updatedAt": entry.get("last_updated_at"),
+            }
+
+    return None
+
+
 @app.get("/health")
 async def health() -> dict[str, str | bool]:
     return {
         "status": "ok",
         "openai_configured": is_openai_key_configured(),
+        "tcgapi_dev_configured": is_tcgapi_dev_configured(),
     }
 
 
+@app.get("/riftbound/price/{tcgplayer_id}")
+async def get_riftbound_price(tcgplayer_id: str) -> dict[str, dict[str, object] | None]:
+    normalized_id = tcgplayer_id.strip()
+
+    if not normalized_id.isdigit():
+        raise HTTPException(status_code=400, detail="ID do TCGPlayer inválido.")
+
+    if not is_tcgapi_dev_configured():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "TCGAPI_DEV_KEY não configurada. Crie uma chave gratuita em "
+                "https://tcgapi.dev e adicione ao backend/.env"
+            ),
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(
+                f"{TCGAPI_DEV_BASE_URL}/cards/tcgplayer/{normalized_id}",
+                headers={"X-API-Key": TCGAPI_DEV_KEY},
+            )
+    except httpx.HTTPError as exc:
+        logger.exception("TCG API request failed for tcgplayer_id=%s", normalized_id)
+        raise HTTPException(
+            status_code=502,
+            detail="Não foi possível consultar o preço da carta.",
+        ) from exc
+
+    if response.status_code == 404:
+        return {"price": None}
+
+    if response.status_code >= 400:
+        logger.warning(
+            "TCG API error for tcgplayer_id=%s status=%s body=%s",
+            normalized_id,
+            response.status_code,
+            response.text[:300],
+        )
+        raise HTTPException(status_code=502, detail="Não foi possível consultar o preço da carta.")
+
+    payload = response.json()
+    data = payload.get("data") if isinstance(payload, dict) else None
+    prices = data.get("prices") if isinstance(data, dict) else None
+    normalized_prices = prices if isinstance(prices, list) else []
+    price = extract_tcgapi_dev_price(normalized_prices)
+
+    return {"price": price}
+
+
 @app.post("/scan-card", response_model=ScanCardResponse)
-async def scan_card(image: UploadFile = File(...)) -> ScanCardResponse:
+async def scan_card(
+    image: UploadFile = File(...),
+    game_type: str = Form(default="pokemon"),
+) -> ScanCardResponse:
+    normalized_game_type = normalize_game_type(game_type)
     image_bytes = await image.read()
 
     if len(image_bytes) == 0:
@@ -625,16 +769,19 @@ async def scan_card(image: UploadFile = File(...)) -> ScanCardResponse:
     if len(image_bytes) > 10 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="A imagem deve ter no máximo 10 MB.")
 
-    extracted, confidence = analyze_card_image(image_bytes)
+    extracted, confidence = analyze_card_image(image_bytes, normalized_game_type)
 
-    candidates = await search_candidates(extracted)
+    if normalized_game_type == "riftbound":
+        candidates: list[ScannedCardResponse] = []
+    else:
+        candidates = await search_candidates(extracted)
 
     if not extracted.name and confidence != "low":
         confidence = "low"
 
     print(
-        f"[scan-card] confidence={confidence} extracted={extracted.model_dump()} "
-        f"candidates={len(candidates)}"
+        f"[scan-card] game={normalized_game_type} confidence={confidence} "
+        f"extracted={extracted.model_dump()} candidates={len(candidates)}"
     )
 
     return ScanCardResponse(
