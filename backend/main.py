@@ -330,8 +330,31 @@ def map_tcg_card(card: dict) -> ScannedCardResponse:
     )
 
 
-TCG_API_TIMEOUT = httpx.Timeout(10.0, read=60.0)
+TCG_API_TIMEOUT = httpx.Timeout(10.0, read=25.0)
+TCGDEX_TIMEOUT = httpx.Timeout(4.0, connect=4.0, read=6.0)
 MAX_CANDIDATES = 3
+_tcgdex_available: bool | None = None
+
+
+async def check_tcgdex_available(client: httpx.AsyncClient) -> bool:
+    global _tcgdex_available
+
+    if _tcgdex_available is not None:
+        return _tcgdex_available
+
+    try:
+        response = await client.get(
+            f"{TCGDEX_BASE_URL}/en/sets",
+            timeout=TCGDEX_TIMEOUT,
+        )
+        _tcgdex_available = response.status_code == 200
+    except httpx.RequestError:
+        _tcgdex_available = False
+
+    if not _tcgdex_available:
+        logger.warning("TCGdex unavailable — using Pokémon TCG API only for candidates")
+
+    return _tcgdex_available
 
 
 def escape_query_value(value: str) -> str:
@@ -373,7 +396,11 @@ async def fetch_tcgdex_card_list(
     params: dict[str, str],
 ) -> list[dict]:
     try:
-        response = await client.get(f"{TCGDEX_BASE_URL}/{lang}/cards", params=params)
+        response = await client.get(
+            f"{TCGDEX_BASE_URL}/{lang}/cards",
+            params=params,
+            timeout=TCGDEX_TIMEOUT,
+        )
     except httpx.TimeoutException:
         logger.warning("TCGdex timeout for params: %s", params)
         return []
@@ -395,7 +422,10 @@ async def fetch_tcgdex_card_detail(
     card_id: str,
 ) -> dict | None:
     try:
-        response = await client.get(f"{TCGDEX_BASE_URL}/{lang}/cards/{card_id}")
+        response = await client.get(
+            f"{TCGDEX_BASE_URL}/{lang}/cards/{card_id}",
+            timeout=TCGDEX_TIMEOUT,
+        )
     except httpx.RequestError as exc:
         logger.warning("TCGdex detail failed for %s: %s", card_id, exc)
         return None
@@ -518,12 +548,13 @@ async def search_candidates(extracted: ExtractedCardInfo) -> list[ScannedCardRes
         headers["X-Api-Key"] = POKEMON_TCG_API_KEY
 
     async with httpx.AsyncClient(timeout=TCG_API_TIMEOUT, headers=headers) as client:
-        tcgdex_results = await search_tcgdex_candidates(client, extracted, lang)
-        for card in tcgdex_results:
-            if card.id in seen_ids:
-                continue
-            seen_ids.add(card.id)
-            candidates.append(card)
+        if await check_tcgdex_available(client):
+            tcgdex_results = await search_tcgdex_candidates(client, extracted, lang)
+            for card in tcgdex_results:
+                if card.id in seen_ids:
+                    continue
+                seen_ids.add(card.id)
+                candidates.append(card)
 
         if len(candidates) < MAX_CANDIDATES:
             pokemon_results = await search_pokemontcg_candidates(client, extracted)
