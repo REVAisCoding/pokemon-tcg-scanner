@@ -4,11 +4,11 @@
 BACKEND_DIR := backend
 APP_DIR     := pokemon-app
 VENV        := $(BACKEND_DIR)/.venv
-PIP         := $(VENV)/bin/pip
-UVICORN     := $(VENV)/bin/uvicorn
+VENV_BIN    := $(VENV)/bin
+PIP         := $(VENV_BIN)/pip
 PORT        := 8000
 
-.PHONY: help init init-backend init-web backend web dev health install
+.PHONY: help init init-backend init-web backend web dev health install worker
 
 .DEFAULT_GOAL := help
 
@@ -20,7 +20,8 @@ help: ## Lista comandos disponíveis
 	@echo "Fluxo típico:"
 	@echo "  make init          # primeira vez (deps + .env)"
 	@echo "  make backend       # terminal 1 — API FastAPI"
-	@echo "  make web           # terminal 2 — Expo no navegador"
+	@echo "  make worker        # terminal 2 — worker Redis (scan assíncrono)"
+	@echo "  make web           # terminal 3 — Expo no navegador"
 
 # --- Setup ---
 
@@ -55,7 +56,11 @@ install: init ## Alias para make init
 
 backend: ## Sobe API (uvicorn :8000, reload, 0.0.0.0)
 	@test -d $(VENV) || (echo "Rode primeiro: make init-backend" && exit 1)
-	cd $(BACKEND_DIR) && $(if $(wildcard $(UVICORN)),$(UVICORN),python3 -m uvicorn) main:app --reload --host 0.0.0.0 --port $(PORT)
+	cd $(BACKEND_DIR) && .venv/bin/uvicorn main:app --reload --host 0.0.0.0 --port $(PORT)
+
+worker: ## Sobe worker RQ (consome fila scan_jobs)
+	@test -d $(VENV) || (echo "Rode primeiro: make init-backend" && exit 1)
+	cd $(BACKEND_DIR) && .venv/bin/python worker.py
 
 web: ## Sobe Expo no navegador (expo start --web)
 	@test -d $(APP_DIR)/node_modules || (echo "Rode primeiro: make init-web" && exit 1)
@@ -65,7 +70,7 @@ dev: ## Sobe backend em background e web no foreground
 	@test -d $(VENV) || (echo "Rode primeiro: make init" && exit 1)
 	@test -d $(APP_DIR)/node_modules || (echo "Rode primeiro: make init" && exit 1)
 	@echo "→ Backend em http://localhost:$(PORT) (background)"
-	@cd $(BACKEND_DIR) && $(if $(wildcard $(UVICORN)),$(UVICORN),python3 -m uvicorn) main:app --reload --host 0.0.0.0 --port $(PORT) & \
+	@cd $(BACKEND_DIR) && .venv/bin/uvicorn main:app --reload --host 0.0.0.0 --port $(PORT) & \
 	BACKEND_PID=$$!; \
 	trap 'kill $$BACKEND_PID 2>/dev/null' EXIT INT TERM; \
 	echo "→ App web (Ctrl+C encerra backend e Expo)"; \

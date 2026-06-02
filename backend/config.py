@@ -18,10 +18,19 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 POKEMON_TCG_API_KEY = os.getenv("POKEMON_TCG_API_KEY")
 TCGAPI_DEV_KEY = os.getenv("TCGAPI_DEV_KEY", "").strip()
 
+SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").strip().rstrip("/")
+SUPABASE_SERVICE_ROLE_KEY = (os.getenv("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
+SUPABASE_STORAGE_BUCKET = (os.getenv("SUPABASE_STORAGE_BUCKET") or "scan-images").strip()
+REDIS_URL = (os.getenv("REDIS_URL") or "").strip()
+
 
 def parse_cors_origins() -> tuple[list[str], bool]:
-    """Parse CORS_ORIGINS (comma-separated). Wildcard disables credentials (browser rule)."""
-    raw = os.getenv("CORS_ORIGINS", "*").strip()
+    """Parse CORS origins (comma-separated). Wildcard disables credentials (browser rule)."""
+    raw = (
+        os.getenv("CORS_ALLOWED_ORIGINS")
+        or os.getenv("CORS_ORIGINS")
+        or "*"
+    ).strip()
     if not raw or raw == "*":
         return ["*"], False
     origins = [origin.strip() for origin in raw.split(",") if origin.strip()]
@@ -39,3 +48,11 @@ def is_openai_key_configured() -> bool:
 
 def is_tcgapi_dev_configured() -> bool:
     return len(TCGAPI_DEV_KEY) > 0
+
+
+def is_supabase_configured() -> bool:
+    return bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)
+
+
+def is_redis_configured() -> bool:
+    return bool(REDIS_URL)

@@ -30,3 +30,22 @@ class ScanCardResponse(BaseModel):
     confidence: ConfidenceLevel
     extracted: ExtractedCardInfo
     candidates: list[ScannedCardResponse]
+
+
+ScanJobStatus = Literal["pending", "processing", "completed", "failed"]
+
+
+class ScanJobCreateResponse(BaseModel):
+    jobId: str
+
+
+class ScanJobResponse(BaseModel):
+    id: str
+    status: ScanJobStatus
+    gameType: GameType
+    imageUrl: str | None = None
+    detectedName: str | None = None
+    resultCandidates: list[ScannedCardResponse] | None = None
+    errorMessage: str | None = None
+    createdAt: str
+    updatedAt: str

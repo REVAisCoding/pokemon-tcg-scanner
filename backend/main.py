@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import config
-from routes import health, riftbound, scan
+from routes import health, riftbound, scan, scan_jobs
 
 logging.basicConfig(level=logging.INFO)
 
@@ -22,4 +22,5 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(scan.router)
+app.include_router(scan_jobs.router)
 app.include_router(riftbound.router)
