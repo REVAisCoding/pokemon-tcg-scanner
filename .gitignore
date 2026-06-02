@@ -1,0 +1,3 @@
+# Redis local persistence (dev)
+dump.rdb
+*.rdb
