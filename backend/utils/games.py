@@ -7,4 +7,6 @@ def normalize_game_type(value: str | None) -> GameType:
         return "riftbound"
     if normalized == "magic":
         return "magic"
+    if normalized in {"onepiece", "one-piece", "one_piece"}:
+        return "onepiece"
     return "pokemon"

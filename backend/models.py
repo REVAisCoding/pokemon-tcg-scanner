@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-GameType = Literal["pokemon", "riftbound", "magic"]
+GameType = Literal["pokemon", "riftbound", "magic", "onepiece"]
 ConfidenceLevel = Literal["high", "medium", "low"]
 
 

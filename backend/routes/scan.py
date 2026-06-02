@@ -42,7 +42,7 @@ async def scan_card(
     extracted, confidence = analyze_card_image(image_bytes, normalized_game_type)
 
     candidates: list[ScannedCardResponse]
-    if normalized_game_type in {"riftbound", "magic"}:
+    if normalized_game_type in {"riftbound", "magic", "onepiece"}:
         candidates = []
     else:
         candidates = await search_candidates(extracted)
