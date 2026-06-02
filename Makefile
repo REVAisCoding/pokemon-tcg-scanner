@@ -32,7 +32,7 @@ init-backend: ## venv Python, pip install e .env do backend
 	$(PIP) install -q -r $(BACKEND_DIR)/requirements.txt
 	@if [ ! -f $(BACKEND_DIR)/.env ]; then \
 		cp $(BACKEND_DIR)/.env.example $(BACKEND_DIR)/.env; \
-		echo "  Criado $(BACKEND_DIR)/.env — edite OPENAI_API_KEY"; \
+		echo "  Criado $(BACKEND_DIR)/.env — edite OPENAI_API_KEY e TCGAPI_DEV_KEY (preços Riftbound)"; \
 	else \
 		echo "  $(BACKEND_DIR)/.env já existe"; \
 	fi

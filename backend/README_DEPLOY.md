@@ -136,6 +136,12 @@ Resposta (exemplo):
 
 Consulta preço Riftbound via tcgapi.dev (requer `TCGAPI_DEV_KEY`).
 
+Query params opcionais: `name`, `set_id` — usados como fallback se o ID do TCGPlayer não retornar preço.
+
+### `GET /riftbound/price/by-id/{riftbound_id}`
+
+Resolve o `tcgplayer_id` via Riftcodex e consulta preço no tcgapi.dev. Query params opcionais: `tcgplayer_id`, `name`, `set_id`.
+
 ---
 
 ## Deploy automático (CI/CD)

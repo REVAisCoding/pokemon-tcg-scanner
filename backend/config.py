@@ -7,6 +7,8 @@ load_dotenv()
 API_BASE_URL = "https://api.pokemontcg.io/v2"
 TCGAPI_DEV_BASE_URL = "https://api.tcgapi.dev/v1"
 TCGDEX_BASE_URL = "https://api.tcgdex.net/v2"
+RIFTCODEX_BASE_URL = "https://api.riftcodex.com"
+RIFTBOUND_TCGAPI_GAME_SLUG = "riftbound-league-of-legends-trading-card-game"
 
 EUR_TO_BRL = 6.35
 USD_TO_BRL = 5.75
