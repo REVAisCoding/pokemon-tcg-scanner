@@ -1,0 +1,3 @@
+[submodule "pokemon-app"]
+	path = pokemon-app
+	url = https://github.com/REVAisCoding/pokemon-app.git

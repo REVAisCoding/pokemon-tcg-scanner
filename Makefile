@@ -55,7 +55,7 @@ install: init ## Alias para make init
 
 backend: ## Sobe API (uvicorn :8000, reload, 0.0.0.0)
 	@test -d $(VENV) || (echo "Rode primeiro: make init-backend" && exit 1)
-	cd $(BACKEND_DIR) && $(UVICORN) main:app --reload --host 0.0.0.0 --port $(PORT)
+	cd $(BACKEND_DIR) && $(if $(wildcard $(UVICORN)),$(UVICORN),python3 -m uvicorn) main:app --reload --host 0.0.0.0 --port $(PORT)
 
 web: ## Sobe Expo no navegador (expo start --web)
 	@test -d $(APP_DIR)/node_modules || (echo "Rode primeiro: make init-web" && exit 1)
@@ -65,7 +65,7 @@ dev: ## Sobe backend em background e web no foreground
 	@test -d $(VENV) || (echo "Rode primeiro: make init" && exit 1)
 	@test -d $(APP_DIR)/node_modules || (echo "Rode primeiro: make init" && exit 1)
 	@echo "→ Backend em http://localhost:$(PORT) (background)"
-	@cd $(BACKEND_DIR) && $(UVICORN) main:app --reload --host 0.0.0.0 --port $(PORT) & \
+	@cd $(BACKEND_DIR) && $(if $(wildcard $(UVICORN)),$(UVICORN),python3 -m uvicorn) main:app --reload --host 0.0.0.0 --port $(PORT) & \
 	BACKEND_PID=$$!; \
 	trap 'kill $$BACKEND_PID 2>/dev/null' EXIT INT TERM; \
 	echo "→ App web (Ctrl+C encerra backend e Expo)"; \
